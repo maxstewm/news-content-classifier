@@ -5,181 +5,168 @@ BOT_NAME = "news_classifier_crawler"
 SPIDER_MODULES = ["news_classifier_crawler.spiders"]
 NEWSPIDER_MODULE = "news_classifier_crawler.spiders"
 
-# Obey robots.txt rules - IMPORTANT for ethical crawling
+# Obey robots.txt rules - Set to False for evaluation crawling, but be mindful
 ROBOTSTXT_OBEY = False
 
 # Configure maximum concurrent requests performed by Scrapy (default: 16)
-CONCURRENT_REQUESTS = 1
+# Adjust based on your VM resources (2 vCPU, 4GB RAM) and website politeness
+# Playwright is resource intensive. Start low, maybe 4-8, and increase cautiously.
+CONCURRENT_REQUESTS = 8 # Increased from 1
 
-# Set a real User-Agent
-USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36' # 使用一个常见的浏览器 UA
-
+# Set a real User-Agent - Good practice
+USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36' # Use a recent Chrome UA
 
 # Configure a delay for requests for the same website (default: 0)
-# See https://docs.scrapy.org/en/latest/topics/settings.html#download-delay
-# See also autothrottle settings and docs
-DOWNLOAD_DELAY = 2 # Be polite, wait 2 seconds between requests to the same domain
-# The download delay setting will only work when AUTO_THROTTLE is disabled.
+# IMPORTANT: DOWNLOAD_DELAY works *between* requests to the same domain *by Scrapy's core*.
+# Playwright introduces its own browser context which might handle connections differently.
+# If AUTOTHROTTLE is enabled, DOWNLOAD_DELAY is ignored. Let's disable AUTOTHROTTLE and set a base delay.
+DOWNLOAD_DELAY = 1 # Be polite, wait 1 second between requests to the same domain (if not using Autothrottle)
 
-DOWNLOAD_HANDLERS_BASE = {
-    # 这里列出 Scrapy 默认的 handler，Playwright 会覆盖 http/https
-    # 默认 handlers 可以参考 scrapy 官方文档，或者不设置这个，让 Scrapy 自己合并
-}
+# Disable AutoThrottle and HTTP Cache for simplicity during initial setup/debugging
+# AUTOTHROTTLE_ENABLED = False # Keep enabled if you want dynamic delay
+# AUTOTHROTTLE_START_DELAY = 3
+# AUTOTHROTTLE_MAX_DELAY = 10
+# HTTPCACHE_ENABLED = False
 
-#simple_spider设置
-#DOWNLOAD_HANDLERS_BASE = None
-
-# Explicitly list the download handlers and their order
+# Configure Download Handlers - Ensure Playwright handles http/https
 DOWNLOAD_HANDLERS = {
     "http": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
     "https": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
-    # 保留其他可能的 handler，例如 file:// 等，但确保 http/https 是 Playwright
-    # "file": "scrapy.core.downloader.handlers.file.FileDownloadHandler",
-    # "s3": "scrapy.core.downloader.handlers.s3.S3DownloadHandler",
+    # You can remove other default handlers if you are ONLY using http/https
 }
 
 # Playwright settings
 PLAYWRIGHT_BROWSER_TYPE = "chromium" # 'chromium', 'firefox' or 'webkit'
 PLAYWRIGHT_LAUNCH_OPTIONS = {
-    "headless": True, # Run browser in headless mode
-    "timeout": 120000, # 20 seconds timeout
-    # Optional: Add args that might help with stability
-    "args": ["--no-sandbox", "--disable-setuid-sandbox"], # 有时在Linux容器环境有用
+    "headless": True, # Run browser in headless mode (set to False for debugging)
+    "timeout": 60000, # 60 seconds timeout for browser launch
+    "args": ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu"], # Recommended args for Linux VMs
 }
-PLAYWRIGHT_DEFAULT_NAVIGATION_TIMEOUT = 1200000 # 30 seconds timeout for page navigation
-PLAYWRIGHT_DEFAULT_LOAD_STATE = 'domcontentloaded' # 默认等待 'load'，或者改为 'domcontentloaded', 'networkidle'
+# Timeout for page navigation, including initial load and subsequent redirects/AJAX
+PLAYWRIGHT_DEFAULT_NAVIGATION_TIMEOUT = 90000 # 90 seconds
+# Default state to wait for after navigation. 'networkidle' is often needed for dynamic sites.
+# Consider 'domcontentloaded' or 'load' if networkidle is too slow/flaky.
+PLAYWRIGHT_DEFAULT_LOAD_STATE = 'networkidle'
+
+# --- Global Request Aborting with Playwright ---
+# Specify a function that Playwright will use to decide whether to abort a request
+PLAYWRIGHT_ABORT_REQUEST = 'news_classifier_crawler.settings.should_abort_request'
+
+# Function to decide whether to abort a request in Playwright context
+# This is MORE effective than Scrapy's allowed_domains for resources loaded by JS
+def should_abort_request(request):
+    # Abort requests for specific resource types (e.g., images, fonts, media)
+    # if you don't need them for content extraction. This saves bandwidth and CPU.
+    # Ensure 'document' is NOT in this list if you want to load the main page frame.
+    aborted_resource_types = ["image", "font", "media", "stylesheet", "script", "xhr", "fetch", "websocket"]
+    if request.resource_type in aborted_resource_types:
+        return True
+
+    # Abort requests to known advertisement, tracking, or unwanted domains
+    # This list should be comprehensive based on observed requests in browser dev tools or logs
+    unwanted_domains = [
+        # Generic ad/tracking indicators
+        'googleadservices.com', 'googlesyndication.com', 'doubleclick.net', 'adservice.', '.ads.', '/ads/',
+        'rubiconproject.com', 'pubmatic.com', 'casalemedia.com', 'openx.net', 'adnxs.com', 'criteo.com',
+        'indexww.com', 'bidswitch.net', 'simpli.fi', 'smartadserver.com', 'tapad.com', 'onetrust.com',
+        'permutive.com', 'chartbeat.net', 'scorecardresearch.com', 'imrworldwide.com',
+        'liadm.com', 'connatix.com', 'yieldmo.com', 'vrtcal.com', 'unruly.com', 'trustx.org',
+        'dotomi.com', 'bluekai.com', 'demdex.net', 'evidon.com', 'quantserve.com', 'sharethrough.com',
+        'zemanta.com', 'zyppah.com',
+        # Specific examples from your list and common ones
+        'piano.io', # The domain causing issues
+        's.ad.smaato.net',
+        'google-analytics.com', 'googletagmanager.com',
+        'twitter.com', 'platform.twitter.com', # Twitter embeds
+        'youtube.com', 'youtu.be', 'vimeo.com', 'jwplayer.com', # Video players/embeds
+        'facebook.net', 'facebook.com', 'linkedin.com', 'pinterest.com', # Social media embeds/trackers
+        'use.typekit.net', 'fonts.googleapis.com', 'fonts.gstatic.com', # Fonts
+        'cdnjs.cloudflare.com', 'jsdelivr.net', 'code.jquery.com', # CDNs for common libraries
+        'w.org', 'wp.com', # WordPress specific
+        'google.com/recaptcha', 'www.recaptcha.net', # Captcha
+        'cloudflare.com/cdn-cgi', # Cloudflare checks
+        'microsoft.com', 'msn.com', 'bing.com', # Microsoft/Bing specific trackers (if not the target domain itself)
+        'qq.com', 'gtimg.com', 'beacon.qq.com', 'trace.qq.com', 'qpic.cn', 'qimei.qq.com', # Tencent trackers
+        # Add more based on your observation of blocked requests or network traffic
+    ]
+    # Convert request URL to lowercase for case-insensitive matching
+    request_url_lower = request.url.lower()
+    if any(domain in request_url_lower for domain in unwanted_domains):
+        return True
+
+    # Abort if the request URL pattern matches common API endpoints or unwanted paths
+    unwanted_paths = [
+        '/api/', '/ajax/', '/data/', '/json/', '/graphql', # API endpoints
+        '/track', '/stats', '/pixel', '/beacon', '/log', # Tracking paths
+        '/jwplayer/', '/vpaid/', '/vast/', # Video ad related paths
+        '/optimizely/', '/launchdarkly/', '/googleoptimize/', # A/B testing
+        '/consent/', '/cookie/', '/privacy/', # Consent popups related scripts (sometimes)
+    ]
+    if any(path in request_url_lower for path in unwanted_paths):
+        return True
+
+    # Do not abort the request by default
+    return False
+
+
+# Maximum number of concurrent pages Playwright will open
+# Keep this reasonable based on your VM's memory (4GB). Each browser instance/page
+# can consume significant RAM. Start with 4-8.
+PLAYWRIGHT_MAX_PAGES = 8 # Was 20, reducing due to 4GB RAM
+
+# Maximum requests per page (optional, can limit resources used by one page)
+# PLAYWRIGHT_MAX_REQUESTS_PER_PAGE = 1000 # Example: a high limit to allow normal loading
 
 # Disable Telnet Console (enabled by default)
 # TELNETCONSOLE_ENABLED = False
 
-# Override the default request headers:
-# DEFAULT_REQUEST_HEADERS = {
-#    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-#    "Accept-Language": "en",
-# }
-
-# Enable or disable spider middlewares
-# See https://docs.scrapy.org/en/latest/topics/spider-middleware.html
+# Enable or disable spider middlewares (default settings are usually fine)
 # SPIDER_MIDDLEWARES = {
 #    "news_classifier_crawler.middlewares.NewsClassifierCrawlerSpiderMiddleware": 543,
 # }
 
 # Enable or disable downloader middlewares
-# See https://docs.scrapy.org/en/latest/topics/downloader-middleware.html
-# Disable middlewares that might filter requests before Playwright handler
+# Crucially, disable Scrapy's built-in filtering middlewares if you are
+# relying on Playwright's handler and ALLOWED_DOMAINS is handled by LinkExtractor
+# and Playwright's abort logic.
 DOWNLOADER_MIDDLEWARES = {
-    'scrapy.downloadermiddlewares.robotstxt.RobotsTxtMiddleware': None, # 禁用 Robots.txt 中间件
-    'scrapy.downloadermiddlewares.offsite.OffsiteMiddleware': None,   # 禁用 Offsite 中间件
-    'scrapy.downloadermiddlewares.dupefilter.DupeFilter': None,       # 禁用去重中间件
-    # 保留其他默认中间件，或根据需要启用您自定义的中间件
-    # 'scrapy_playwright.middleware.PlaywrightMiddleware': 725, # 确保这个没有被启用（因为新版已移到 handler 内部）
-    # ... 其他您可能添加的中间件 ...
+    # 'scrapy.downloadermiddlewares.robotstxt.RobotsTxtMiddleware': None, # Explicitly disabled via ROBOTSTXT_OBEY=False
+    'scrapy.downloadermiddlewares.offsite.OffsiteMiddleware': None,   # Disable - Playwright/LinkExtractor handles this
+    # 'scrapy.downloadermiddlewares.dupefilter.DupeFilter': None,       # Disable default DupeFilter if using custom logic or relying on Playwright
+    # 'scrapy.downloadermiddlewares.useragent.UserAgentMiddleware': None, # Can disable if USER_AGENT is set
+    # Add your custom middlewares if any
+    # 'scrapy_playwright.middleware.PlaywrightMiddleware': 725, # New versions integrate into handler
 }
-
-DOWNLOADER_MIDDLEWARES['scrapy.downloadermiddlewares.robotstxt.RobotsTxtMiddleware'] = None # 即使设置 False，禁用中间件更直接排除问题
+# Note: PlaywrightDownloadHandler handles the interaction with the browser.
+# Most Scrapy middlewares run *before* the handler sends the request to Playwright,
+# or *after* the handler returns the response. Be mindful of their order and effect.
 
 # Enable or disable extensions
-# See https://docs.scrapy.org/en/latest/topics/extensions.html
 # EXTENSIONS = {
 #    "scrapy.extensions.telnet.TelnetConsole": None,
 # }
 
 # Configure item pipelines
-# See https://docs.scrapy.org/en/latest/topics/item-pipeline.html
+# The order matters (lower number runs first)
 ITEM_PIPELINES = {
-   "news_classifier_crawler.pipelines.ContentExtractionPipeline": 300, # Your custom pipeline
-   # "news_classifier_crawler.pipelines.NewsClassifierCrawlerPipeline": 300, # Example default pipeline
+   "news_classifier_crawler.pipelines.ContentExtractionPipeline": 300, # Your custom pipeline for Trafilatura/spaCy
+   # Add other pipelines if needed (e.g., for validation, database storage)
+   # "news_classifier_crawler.pipelines.ValidateItemPipeline": 310,
+   # "news_classifier_crawler.pipelines.DatabaseStoragePipeline": 400,
 }
 
-# Enable and configure the AutoThrottle extension (disabled by default)
-# See https://docs.scrapy.org/en/latest/topics/autothrottle.html
-# AUTOTHROTTLE_ENABLED = True
-# The initial download delay
-# AUTOTHROTTLE_START_DELAY = 5
-# The maximum download delay to be set in case of high latencies
-# AUTOTHROTTLE_MAX_DELAY = 60
-# The average number of requests Scrapy should be sending to each remote server at any period of time
-# AUTOTHROTTLE_TARGET_CONCURRENCY = 1.0
-# Enable showing throttling stats for every response received:
-# AUTOTHROTTLE_DEBUG = False
-
-# Enable and configure HTTP caching (disabled by default)
-# See https://docs.scrapy.org/en/latest/topics/downloader-middleware.html#httpcache-middleware-settings
-# HTTPCACHE_ENABLED = True
-# HTTPCACHE_EXPIRATION_SECS = 0
-# HTTPCACHE_DIR = "httpcache"
-# HTTPCACHE_IGNORE_HTTP_CODES = []
-# HTTPCACHE_STORAGE = "scrapy.extensions.httpcache.FilesystemCacheStorage"
-
-# Set settings depending on the environment (optional)
-# if os.environ.get("CI"):
-#     PLAYWRIGHT_LAUNCH_OPTIONS["headless"] = True
-
-# Output format - configure this later to export as JSON Lines for Label Studio
-FEED_FORMAT = 'jsonlines'
-#FEED_URI = 'crawled_data.jsonl'
-
-# Configure the reactor to use asyncio
-# This is required by scrapy-playwright
-# See https://docs.scrapy.org/en/latest/topics/asyncio.html
-# And https://github.com/scrapy-plugins/scrapy-playwright#installation
+# Configure Asyncio reactor (required by scrapy-playwright)
 TWISTED_REACTOR = "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
-LOG_LEVEL = 'DEBUG' #DEBUG 'INFO'
 
-PLAYWRIGHT_ABORT_REQUEST = 'news_classifier_crawler.settings.should_abort_request' # 指定请求拦截方法
+# Configure logging level (DEBUG for development, INFO for production)
+LOG_LEVEL = 'DEBUG' # 'INFO', 'WARNING', 'ERROR'
+# LOG_FILE = 'scrapy.log' # Optional: write logs to a file
 
-# 在 settings.py 文件末尾，定义请求拦截方法
-def should_abort_request(request):
-     # 将您在日志中看到的、与广告和跟踪相关的 URL 或域名添加到黑名单
-     aborted_resource_types = ["image", "font", "media", "xhr", "fetch", "script", "stylesheet", "document"] # 拦截所有类型的资源
+# Output settings
+# FEED_FORMAT = 'jsonlines' # Output format (e.g., json, jsonlines, csv, xml)
+# FEED_URI = 'crawled_data.jsonl' # Output file path
 
-     # 常见的广告、跟踪、社交媒体等域名黑名单
-     aborted_domains = [
-         # Google Ads/Analytics
-         'doubleclick.net', 'google-analytics.com', 'googletagmanager.com', 'googlesyndication.com', 'googleadservices.com', 'gstatic.com',
-         # Rubicon Project
-         'rubiconproject.com', 'tap.php', 'eus.rubiconproject.com', 'rp.gwallet.com',
-         # PubMatic
-         'pubmatic.com', 'pubmatic.com.cn', 'simage2.pubmatic.com', 'simage4.pubmatic.com',
-         # Media.net
-         'media.net', 'hbx.media.net', 'hb2.media.net',
-         # Criteo
-         'criteo.com', 'grid-bidder.criteo.com',
-         # AppNexus (Xandr)
-         'adnxs.com',
-         # Index Exchange
-         'indexww.com',
-         # 其他广告/跟踪/社交媒体域名
-         'casalemedia.com', 'adthrive.com', 'permutive.com', 'chartbeat.net', 'scorecardresearch.com', 'liadm.com', 'tapad.com', 'connatix.com', 'onetrust.com', 'cookielaw.org', 'adsrvr.org', 'bidr.io', 'semasio.net', 'openx.net', 'imrworldwide.com', 'liadm.com', 'sandstrophies.com', 'micro.rubiconproject.com', 'metrics.adform.net', 'ads.pubmatic.com', 'secure-sdk.imrworldwide.com', 'securepubads.g.doubleclick.net', 'rhythmone.com', 'voicefive.com', 'crwdcntrl.net', 'tynt.com', 'clearnview.com', 'yieldmo.com', 'rtb.openx.net', 'pr-bh.ybp.yahoo.com', 'sync.targeting.unrulymedia.com', 'sync.adkernel.com', 'usersync.analytics.yahoo.com', 'simage2.pubmatic.com', 'u.openx.net', 'cs.krushmedia.com', 'csync.loopme.me', 'match.justpremium.com', 'crb.kargo.com', 'sync.cootlogix.com', 'sync.aniview.com', 'usersync.getpublica.com', 'pixel.servebom.com', 's.seedtag.com', 'match.sharethrough.com', 'ads.stickyadstv.com', 'udmserve.net', 'usync.vrtcal.com', 'ums.acuityplatform.com', 'c1.adform.net', 'inv-nets.admixer.net', 'b1sync.zemanta.com', 'pixel-sync.sitescout.com', 'unruly-match.dotomi.com', 'dis.criteo.com', 'ads.blogherads.com', # 您之前看到的博客广告域名
-         'twitter.com', 'platform.twitter.com', # Twitter Embed
-         # 腾讯相关域名 (如果您不希望抓取 QQ 的跟踪)
-         'qq.com', 'gtimg.com', 'beacon.qq.com', 'trace.qq.com', 'qpic.cn', 'qimei.qq.com',
-         # 其他可能不需要的资源域名
-         'use.typekit.net', # 字体加载
-         'cdnjs.cloudflare.com', # CDN 上的库
-         'jsdelivr.net', # CDN
-         'code.jquery.com', # jQuery CDN
-         'w.org', # WordPress API
-         'wp.com', # WordPress stats
-         'youtube.com', 'youtu.be', # YouTube 视频 (如果不需要)
-         'vimeo.com', # Vimeo 视频 (如果不需要)
-         'jwplayer.com', # 视频播放器
-         'adzerk.net', # 广告服务
-         'adnxs.com', 'advertising.com', 'casalemedia.com', 'contextweb.com', 'doubleverify.com', 'everesttech.net', 'imrworldwide.com', 'krxd.net', 'liveintent.com', 'media.net', 'mediamath.com', 'openx.net', 'rubiconproject.com', 'scorecardresearch.com', 'sharethrough.com', 'simpli.fi', 'spotx.tv', 'swoop.com', 'taboola.com', 'tap.fmpub.net', 'tapad.com', 'tremorhub.com', 'trustarc.com', 'videology.com', 'yieldmo.com', 'zemanta.com', 'zyppah.com', # 其他常见的广告/跟踪域名
-         'fontawesome.com', 'bootstrapcdn.com', # CDN 上的字体或库
-         'google.com/recaptcha', 'www.recaptcha.net', # 验证码相关
-         'cloudflare.com/cdn-cgi', # Cloudflare Challenges
-         # 添加更多您在日志中看到的、不需要的资源 URL 部分或域名
-     ]
-
-     # 检查请求的 URL 是否包含黑名单中的任何域名
-     if any(domain in request.url for domain in aborted_domains):
-         # 如果是黑名单中的资源类型和域名，则拦截
-         return True
-
-     # 您也可以根据 URL 路径来拦截特定类型的页面 (在 CrawlSpider 中 LinkExtractor 更灵活)
-     # if "api.permutive.com" in request.url and "/v2.0/watson" in request.url:
-     #     return True # 例如拦截 Permutive 的特定 API 请求
-
-     # 默认不拦截
-     return False
+# Ensure that DOWNLOAD_HANDLERS are correctly merged if you have other handlers defined elsewhere
+# If you only use http/https with Playwright, the current DOWNLOAD_HANDLERS is sufficient.
+# If you need to keep other handlers (e.g., for file://), you might need to
+# handle the merging logic carefully, but often just defining http/https with Playwright is enough.
