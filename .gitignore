@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+env/
+# Add other virtual environment names if used
+.venv/
+
+# Editor files
+.vscode/
+.idea/
+
+# Scrapy
+*.log
+.scrapy/
+crawled_data.jsonl # Or the specific names of your crawl outputs
+evaluation_data.jsonl
+
+# Data directories (if they become very large)
+# Consider ignoring the whole 'data/' directory if it's on a separate disk
+# and you don't want to version control raw/large processed files.
+# For now, let's ignore specific subfolders or patterns if needed.
+data/raw_html/
+data/extracted/
+data/silver/
+data/gold/
+# data/processed/ # Maybe keep small processed files versioned? Decide later.
+
+# Model checkpoints and logs (can be very large)
+llm/fine_tuning/checkpoints/
+llm/fine_tuning/logs/
+llm/inference/models/ # If model files are copied here
+
+# Playwright browser binaries (if downloaded locally)
+.playwright/

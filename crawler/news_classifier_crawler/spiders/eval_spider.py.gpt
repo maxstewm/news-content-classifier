@@ -1,0 +1,95 @@
+# spiders/eval_spider.py
+import scrapy
+from scrapy.linkextractors import LinkExtractor
+from scrapy.spiders import CrawlSpider
+from news_classifier_crawler.items import NewsArticleItem
+from urllib.parse import urlparse
+from scrapy_playwright.page import PageMethod
+
+
+class EvaluationSpider(CrawlSpider):
+    name = "eval_spider"
+
+    core_domains = [
+        "npr.org",
+        "bleacherreport.com",
+        "variety.com",
+        "hollywoodreporter.com",
+        "webmd.com",
+        "statnews.com",
+        "sciencedaily.com",
+        "politico.com",
+    ]
+
+    allowed_domains = core_domains
+    start_urls = [
+        "https://www.npr.org/sections/news/",
+        "https://liliputing.com/",
+    ]
+
+    page_limit_per_domain = 400
+    crawled_count_per_domain = {}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for domain in self.core_domains:
+            self.crawled_count_per_domain[domain] = 0
+
+        self.link_extractor = LinkExtractor(
+            allow_domains=self.allowed_domains,
+            allow=(
+                r'/[0-9]{4}/[0-9]{2}/[0-9]{2}/[^/]+/$',
+                r'/article/',
+                r'/story/',
+                r'/news/',
+                r'/vip/',
+                r'/20[0-9]{2}/',
+                r'/content/ar-AA',
+                r'/story/_/id/',
+                r'/nx-s1-\d+/',
+                r'/lilbits-',
+            ),
+            deny=(
+                r'/author/', r'/tag/', r'/category/', r'/about/', r'/contact/',
+                r'\.pdf$', r'\.jpg$', r'\.png$', r'\.gif$', r'\.css$', r'\.js$',
+                r'/videos/', r'/photos/', r'/gallery/',
+                r'/shop/', r'/subscribe/', r'/donate/', r'/privacy/',
+                r'/terms/', r'/robots.txt', r'#',
+            ),
+        )
+
+    async def parse(self, response):
+        domain = urlparse(response.url).netloc.replace("www.", "")
+        if domain not in self.core_domains:
+            return
+
+        if self.crawled_count_per_domain[domain] >= self.page_limit_per_domain:
+            self.logger.info(f"Page limit reached for domain {domain}")
+            return
+
+        self.crawled_count_per_domain[domain] += 1
+
+        self.logger.info(f"[{domain}] Crawled {self.crawled_count_per_domain[domain]} pages")
+
+        # 示例提取文章正文（可自定义）
+        item = NewsArticleItem()
+        item["url"] = response.url
+        item["title"] = response.xpath('//title/text()').get()
+        item["text"] = " ".join(response.xpath('//p//text()').getall()).strip()
+        yield item
+
+        # 提取链接继续递归抓取
+        links = self.link_extractor.extract_links(response)
+        for link in links:
+            link_domain = urlparse(link.url).netloc.replace("www.", "")
+            if link_domain in self.core_domains and self.crawled_count_per_domain[link_domain] < self.page_limit_per_domain:
+                yield scrapy.Request(
+                    url=link.url,
+                    callback=self.parse,
+                    meta={
+                        "playwright": True,
+                        "playwright_page_methods": [
+                            PageMethod("wait_for_load_state", "domcontentloaded")
+                        ],
+                    }
+                )

@@ -1,0 +1,18 @@
+scrapy
+scrapy-playwright
+playwright # Scrapy-playwright usually requires playwright itself
+trafilatura
+spacy
+nltk
+pandas
+numpy
+# For LLM part later (installing now is fine)
+torch # Ensure CUDA version, e.g., torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+transformers
+peft
+accelerate
+trl
+# For inference later (vLLM or TGI, has specific requirements)
+# vllm # Check vLLM installation guide for specific CUDA/Python versions
+# Or
+# text-generation-inference # Usually run via Docker
