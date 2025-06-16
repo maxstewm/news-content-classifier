@@ -14,5 +14,6 @@ accelerate
 trl
 # For inference later (vLLM or TGI, has specific requirements)
 # vllm # Check vLLM installation guide for specific CUDA/Python versions
+llama-cpp-python
 # Or
 # text-generation-inference # Usually run via Docker

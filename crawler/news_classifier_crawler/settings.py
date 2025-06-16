@@ -85,7 +85,7 @@ def should_abort_request(request):
         'w.org', 'wp.com', # WordPress specific
         'google.com/recaptcha', 'www.recaptcha.net', # Captcha
         'cloudflare.com/cdn-cgi', # Cloudflare checks
-        'microsoft.com', 'msn.com', 'bing.com', # Microsoft/Bing specific trackers (if not the target domain itself)
+        #'microsoft.com', 'msn.com', 'bing.com', # Microsoft/Bing specific trackers (if not the target domain itself)
         'qq.com', 'gtimg.com', 'beacon.qq.com', 'trace.qq.com', 'qpic.cn', 'qimei.qq.com', # Tencent trackers
         # Add more based on your observation of blocked requests or network traffic
     ]
